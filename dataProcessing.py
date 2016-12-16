@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import linregress
 
 #Label names
 AVG_TIME = 'AvgTime'
@@ -68,47 +69,66 @@ def jawbone(cogCSV, sleepCSV):
 	mergedData = mergedData.reset_index(drop=True)
 	return mergedData
 
+#Methods that transform data
+
 def addNormScore(data):
 	normData = pd.DataFrame({"Date":data.Date, TEST_NAME:data.Test, SCORE:data.Score, AVG_TIME:data.AvgTime,
 							 "ID":data.ID, SLEEP:data.Sleep,
 							 NORM_SCORE:createNormScoreSeries(data.Score, data.AvgTime, data.Test)})
 	return normData
 
-#Plotting methods
-
-#Plots the normalised processing speed score against sleep time in a scatter graph
-#Requires data to include normalised score already
-def plotProcessNormScatter(data):
-	#Define the tests that count towards processing speed score
-
-	#Sort the data by ID then date so it can be processed a day at time
+def normCatData(data, dictionary):
+	# Sort the data by ID then date so it can be processed a day at time
 	dataIDS = data.sort_values(['ID', 'Date'], ascending=[True, True]);
-	#Dataframe for displaying scatter plot
+	# Dataframe to return
 	dataPScore = pd.DataFrame(columns=('ID', 'Date', NORM_SCORE, SLEEP))
 	count = 0;
 	print(dataPScore.columns)
 	for index, row in dataIDS.iterrows():
-		if(count == 0):
+		if (count == 0):
 			dataPScore.loc[0] = [row.ID, row.Date, row[NORM_SCORE],
-									   row[SLEEP]]
+								 row[SLEEP]]
 			count += 1
 		else:
-			if(row['ID'] != dataPScore.loc[count - 1]['ID']): #If the loop has gone to the next user in the frame
+			if (row['ID'] != dataPScore.loc[count - 1]['ID']):  # If the loop has gone to the next user in the frame
 				dataPScore.loc[count] = [row.ID, row.Date, row[NORM_SCORE],
-									   row[SLEEP]]
+										 row[SLEEP]]
 				count += 1
 			else:
 				dateDif = row['Date'] - dataPScore.loc[count - 1]['Date']
-				if(1 <= dateDif.components.days or 1 <= dateDif.components.hours): #If the loop has gone to the next date in the frame
+				if (
+						1 <= dateDif.components.days or 1 <= dateDif.components.hours):  # If the loop has gone to the next date in the frame
 
 					dataPScore.loc[count] = [row.ID, row.Date, row[NORM_SCORE],
-									   row[SLEEP]]
+											 row[SLEEP]]
 					count += 1
 				else:
-					if(isProcressing(row[TEST_NAME])):
-						dataPScore.set_value(count - 1, NORM_SCORE, dataPScore.loc[count - 1][NORM_SCORE] + row[NORM_SCORE])
-	dataPScore.plot.scatter(x=SLEEP, y=NORM_SCORE)
-	print(dataPScore)
+					if (dictionary(row[TEST_NAME])):
+						dataPScore.set_value(count - 1, NORM_SCORE,
+											 dataPScore.loc[count - 1][NORM_SCORE] + row[NORM_SCORE])
+	return dataPScore
+
+#Homoginizes the date of the data so it is represented as a day since start of testing instead of an actual day
+def homTimeData(data):
+	dataHom = data.copy()
+	dataHom = dataHom.sort_values(['Date'], ascending=True)
+	dataHom = dataHom.reset_index(drop=True)
+	#Save the start date as 00:00:00 of the very first day
+	startDate = dataHom.loc[0].Date.replace(hour=0, minute=0, second=0)
+	#Add the number of days and seconds since the start date to the dataframe
+	dataHom['Day'] = (dataHom.Date - startDate).astype('timedelta64[D]').astype('int')
+	dataHom['Seconds'] = (dataHom.Date - startDate).astype('timedelta64[s]').astype('int')
+	#drop Date as it is no longer needed
+	del dataHom['Date']
+	return dataHom
+
+#Plotting methods
+
+#Plots the category score against sleep time in a scatter graph
+#Requires data to include normalised score already
+#Requires a dictionary that determines whether the test is part of the category or not
+def plotNormScatter(data, dictionary):
+	normCatData(data, dictionary).plot.scatter(x=SLEEP, y=NORM_SCORE)
 	plt.show()
 	return
 
@@ -145,6 +165,18 @@ def plotPatternScatter(data):
 def plotStroopScatter(data):
 	stroop = data.loc[data[TEST_NAME] == STROOP]
 	stroop.plot.scatter(x=SLEEP, y=AVG_TIME)
+	plt.show()
+	return
+
+#PLots linear regression of the two given columns for each data frame
+def plotLinRegress(*dfs, **keyargs):
+	x = keyargs.get('x')
+	y = keyargs.get('y')
+	for i, df in enumerate(dfs):
+		lR = linregress(df[x], df[y])
+		plt.plot(df[x], df[y], lineStyle(2 * i), label=df.iloc[0].Test)
+		plt.plot(df[x], df[x] * lR.slope + lR.intercept, lineStyle(2 * i + 1), label='_nolegend_')
+	plt.legend(loc='best')
 	plt.show()
 	return
 
@@ -449,7 +481,7 @@ def maxStroopInit(data):
 	return
 
 #Score calculation dictionaries
-def isProcressing(testName):
+def dictProcessing(testName):
 	pDict = {
 		APPEARING_OBJECT:True,
 		ARROW_IGNORING:True,
@@ -460,3 +492,67 @@ def isProcressing(testName):
 		STROOP:True
 	}
 	return pDict.get(testName, False)
+
+def dictVisualMF(testName):
+	pDict = {
+		APPEARING_OBJECT: True,
+		CHANGING_DIRECTIONS: True,
+		CHASE_TEST: True,
+	}
+	return pDict.get(testName, False)
+
+def dictAttention(testName):
+	pDict = {
+		ARROW_IGNORING: True,
+		CHANGING_DIRECTIONS: True
+	}
+	return pDict.get(testName, False)
+
+def dictAttentionDetail(testName):
+	pDict = {
+		ARROW_IGNORING:True,
+		CHANGING_DIRECTIONS:True,
+		EVEN_OR_VOWEL:True,
+		MONKEY_LADDER:True,
+		CARD_LEARNING:True,
+		PATTERN_RECREATION:True,
+		STROOP:True
+	}
+	return pDict.get(testName, False)
+
+def dictFlexibility(testName):
+	pDict = {
+		CHANGING_DIRECTIONS:True,
+		EVEN_OR_VOWEL:True,
+	}
+	return pDict.get(testName, False)
+
+
+def dictMemory(testName):
+	pDict = {
+		MONKEY_LADDER:True,
+		CARD_LEARNING:True,
+		PATTERN_RECREATION:True,
+	}
+	return pDict.get(testName, False)
+
+def dictLearning(testName):
+	pDict = {
+		CARD_LEARNING:True,
+		PATTERN_RECREATION:True,
+	}
+	return pDict.get(testName, False)
+
+
+#Line style dictionary for plotting multiple frames on the same plot
+def lineStyle(index):
+	return {
+		0:'ro',
+		1:'r-',
+		2:'go',
+		3:'g-',
+		4:'bo',
+		5:'b-',
+		6:'yo',
+		7:'y-'
+	}[index]
